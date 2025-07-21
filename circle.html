@@ -1,76 +1,140 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Nearby Bluetooth Scanner</title>
+  <meta charset="UTF-8" />
+  <title>Closest BLE Devices</title>
   <style>
     body {
-      font-family: sans-serif;
-      padding: 20px;
-      text-align: center;
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #f0f2f5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
     }
+
     button {
-      font-size: 18px;
-      padding: 10px 20px;
-      margin-top: 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 14px 28px;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
     }
-    .log {
-      margin-top: 20px;
-      background: #f4f4f4;
-      padding: 10px;
-      font-family: monospace;
-      border-radius: 10px;
-      max-height: 300px;
-      overflow-y: auto;
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    #results {
+      margin-top: 30px;
+      padding: 20px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      min-width: 300px;
+      max-width: 90%;
+    }
+
+    .device {
+      margin-bottom: 15px;
+      border-bottom: 1px solid #e0e0e0;
+      padding-bottom: 10px;
+    }
+
+    .device:last-child {
+      border-bottom: none;
+    }
+
+    .device-name {
+      font-weight: bold;
+      font-size: 18px;
+    }
+
+    .rssi {
+      font-size: 14px;
+      color: #555;
     }
   </style>
 </head>
 <body>
-  <h2>📡 Bluetooth Proximity Scanner</h2>
-  <button onclick="scan()">🔍 Start Scanning</button>
-  <div class="log" id="log">Waiting for scan...</div>
+
+  <button onclick="scanDevices()">🔍 Scan for Nearby BLE Devices</button>
+  <div id="results">Click scan to start.</div>
 
   <script>
-    function rssiToPercent(rssi) {
-      // Normalize RSSI between -100 dBm (weak) to -30 dBm (strong)
-      const min = -100;
-      const max = -30;
-      let percent = Math.round(((rssi - min) / (max - min)) * 100);
-      return Math.min(100, Math.max(0, percent)); // Clamp between 0-100
-    }
+    async function scanDevices(topN = 5, scanTime = 5000) {
+      const results = document.getElementById("results");
 
-    async function scan() {
-      const log = document.getElementById('log');
-      log.innerHTML = '🔍 Scanning for Bluetooth devices...<br>';
-
-      if (!('bluetooth' in navigator) || !navigator.bluetooth.requestLEScan) {
-        log.innerHTML += '❌ Web Bluetooth Scanning is not supported in this browser.';
+      if (!navigator.bluetooth || !navigator.bluetooth.requestLEScan) {
+        results.textContent = "❌ Your browser does not support Web Bluetooth API.";
         return;
       }
 
+      const deviceRSSIMap = new Map();
+
       try {
-        const options = {
+        results.textContent = "🔍 Scanning for nearby BLE devices...";
+
+        const scan = await navigator.bluetooth.requestLEScan({
           acceptAllAdvertisements: true
-        };
-
-        const scan = await navigator.bluetooth.requestLEScan(options);
-
-        navigator.bluetooth.addEventListener('advertisementreceived', event => {
-          const name = event.device.name || 'Unknown';
-          const rssi = event.rssi;
-          const signalStrength = rssiToPercent(rssi);
-
-          log.innerHTML = `
-            ✅ Device: ${name}<br>
-            🔢 RSSI: ${rssi} dBm<br>
-            📶 Strength: ${signalStrength}%<br>
-            🔁 Scanning for closest device...<br>
-          `;
         });
 
-      } catch (err) {
-        log.innerHTML += `❌ Error: ${err.message}`;
+        navigator.bluetooth.addEventListener('advertisementreceived', event => {
+          const name = event.device.name || event.name;
+          if (!name) return; // Skip unnamed devices
+
+          const id = event.device.id;
+          if (!deviceRSSIMap.has(id)) {
+            deviceRSSIMap.set(id, { name, rssiSamples: [] });
+          }
+
+          deviceRSSIMap.get(id).rssiSamples.push(event.rssi);
+        });
+
+        setTimeout(() => {
+          scan.stop();
+
+          const processedDevices = Array.from(deviceRSSIMap.values())
+            .map(device => {
+              const avgRSSI = device.rssiSamples.reduce((a, b) => a + b, 0) / device.rssiSamples.length;
+              return { name: device.name, avgRSSI: Math.round(avgRSSI) };
+            })
+            .sort((a, b) => b.avgRSSI - a.avgRSSI)
+            .slice(0, topN);
+
+          if (processedDevices.length === 0) {
+            results.textContent = "❌ No nearby BLE devices with names found.";
+            return;
+          }
+
+          results.innerHTML = `<h3>📡 Top ${topN} Nearby Devices</h3>`;
+          processedDevices.forEach(d => {
+            results.innerHTML += `
+              <div class="device">
+                <div class="device-name">${d.name}</div>
+                <div class="rssi">📶 Avg RSSI: ${d.avgRSSI} dBm</div>
+              </div>
+            `;
+          });
+
+        }, scanTime);
+
+      } catch (error) {
+        console.error("Bluetooth scan error:", error);
+        if (error.name === 'NotFoundError' || error.message.includes("Bluetooth adapter")) {
+          results.textContent = "⚠️ Please turn on Bluetooth and try again.";
+        } else if (error.name === 'NotAllowedError') {
+          results.textContent = "⚠️ Bluetooth permission denied. Please allow access.";
+        } else {
+          results.textContent = "⚠️ Scan failed: " + error.message;
+        }
       }
     }
   </script>
+
 </body>
 </html>
