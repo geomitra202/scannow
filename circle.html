@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Nearby Bluetooth Scanner</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      text-align: center;
+    }
+    button {
+      font-size: 18px;
+      padding: 10px 20px;
+      margin-top: 20px;
+    }
+    .log {
+      margin-top: 20px;
+      background: #f4f4f4;
+      padding: 10px;
+      font-family: monospace;
+      border-radius: 10px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <h2>📡 Bluetooth Proximity Scanner</h2>
+  <button onclick="scan()">🔍 Start Scanning</button>
+  <div class="log" id="log">Waiting for scan...</div>
+
+  <script>
+    function rssiToPercent(rssi) {
+      // Normalize RSSI between -100 dBm (weak) to -30 dBm (strong)
+      const min = -100;
+      const max = -30;
+      let percent = Math.round(((rssi - min) / (max - min)) * 100);
+      return Math.min(100, Math.max(0, percent)); // Clamp between 0-100
+    }
+
+    async function scan() {
+      const log = document.getElementById('log');
+      log.innerHTML = '🔍 Scanning for Bluetooth devices...<br>';
+
+      if (!('bluetooth' in navigator) || !navigator.bluetooth.requestLEScan) {
+        log.innerHTML += '❌ Web Bluetooth Scanning is not supported in this browser.';
+        return;
+      }
+
+      try {
+        const options = {
+          acceptAllAdvertisements: true
+        };
+
+        const scan = await navigator.bluetooth.requestLEScan(options);
+
+        navigator.bluetooth.addEventListener('advertisementreceived', event => {
+          const name = event.device.name || 'Unknown';
+          const rssi = event.rssi;
+          const signalStrength = rssiToPercent(rssi);
+
+          log.innerHTML = `
+            ✅ Device: ${name}<br>
+            🔢 RSSI: ${rssi} dBm<br>
+            📶 Strength: ${signalStrength}%<br>
+            🔁 Scanning for closest device...<br>
+          `;
+        });
+
+      } catch (err) {
+        log.innerHTML += `❌ Error: ${err.message}`;
+      }
+    }
+  </script>
+</body>
+</html>
